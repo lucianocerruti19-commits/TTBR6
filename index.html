@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TOTOBAR</title>
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#050505">
+
+<style>
+body{
+  margin:0;
+  background:#050505;
+  color:#f5d28a;
+  font-family:'Arial', sans-serif;
+}
+
+header{
+  text-align:center;
+  padding:28px 10px;
+  background:#0b0b0b;
+  border-bottom:3px solid #d4af37;
+}
+
+.section{
+  display:none;
+  padding:20px;
+}
+
+button{
+  padding:12px;
+  border-radius:10px;
+  background:#d4af37;
+  color:#000;
+  font-weight:bold;
+  margin:4px;
+}
+
+.card{
+  background:#101010;
+  padding:12px;
+  border-radius:10px;
+  margin:6px 0;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h2>TOTOBAR</h2>
+</header>
+
+<!-- MENÚ -->
+<div id="selector" class="section" style="display:block">
+  <h3>Seleccionar modo</h3>
+  <button onclick="login('cliente')">Cliente</button>
+  <button onclick="login('mozo')">Mozo</button>
+  <button onclick="login('cocina')">Cocina</button>
+  <button onclick="login('admin')">Admin</button>
+  <button onclick="login('dueno')">Dueño</button>
+</div>
+
+<!-- CLIENTE -->
+<div id="cliente" class="section">
+  <button onclick="mostrar('selector')">⬅ Volver</button>
+
+  <h3>Pedido</h3>
+
+  <div id="productos"></div>
+
+  <input id="mesa" placeholder="Número de mesa">
+
+  <div class="card">
+    <h3>Carrito</h3>
+    <div id="carrito"></div>
+    <p>Total: $<span id="total">0</span></p>
+    <button onclick="enviarPedido()">Enviar Pedido</button>
+  </div>
+</div>
+
+<!-- MOZO -->
+<div id="mozo" class="section">
+  <button onclick="mostrar('selector')">⬅ Volver</button>
+
+  <h3>Mozo - Mesas</h3>
+  <div id="mozoPedidos"></div>
+
+  <h4>Cargar pedido manual</h4>
+  <input id="mesaManual" placeholder="Mesa">
+  <textarea id="itemsManual" placeholder="Pedido"></textarea>
+  <button onclick="cargarManual()">Cargar</button>
+</div>
+
+<!-- COCINA -->
+<div id="cocina" class="section">
+  <button onclick="mostrar('selector')">⬅ Volver</button>
+  <h3>Cocina</h3>
+  <div id="cocinaPedidos"></div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+import { getFirestore, collection, addDoc, onSnapshot, updateDoc, doc } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+const firebaseConfig={
+apiKey:"AIzaSyCa-R6z76qoMt6Wf9EZFSqqGNY8U4JUMtM",
+authDomain:"menu-pro-app.firebaseapp.com",
+projectId:"menu-pro-app",
+storageBucket:"menu-pro-app.firebasestorage.app",
+messagingSenderId:"42917274964",
+appId:"1:42917274964:web:3be3c9c124b9c69b8994c1"
+};
+
+const db=getFirestore(initializeApp(firebaseConfig));
+
+let carrito=[];
+let total=0;
+
+/* LOGIN */
+window.login = (rol) => {
+  if (rol === "cliente") {
+    mostrar("cliente");
+    return;
+  }
+
+  const pass = prompt("Contraseña:");
+  if (!pass) return;
+
+  if (
+    (rol === "dueno" && pass === "toto321") ||
+    (rol === "admin" && pass === "toto321") ||
+    (rol === "cocina" && pass === "cocina2026") ||
+    (rol === "mozo" && pass === "mozo2026")
+  ) {
+    mostrar(rol);
+  } else {
+    alert("Contraseña incorrecta");
+  }
+};
+
+window.mostrar = (id) => {
+  document.querySelectorAll(".section").forEach(s=>s.style.display="none");
+  document.getElementById(id).style.display="block";
+};
+
+/* PRODUCTOS (ejemplo estático) */
+const productos = [
+ {nombre:"Milanesa", precio:1500},
+ {nombre:"Pizza", precio:1200},
+ {nombre:"Burger", precio:900}
+];
+
+const prodDiv = document.getElementById("productos");
+productos.forEach(p=>{
+  prodDiv.innerHTML += `
+  <div class="card">
+    ${p.nombre} - $${p.precio}
+    <button onclick="agregar('${p.nombre}', ${p.precio})">Agregar</button>
+  </div>`;
+});
+
+/* CARRITO */
+window.agregar = (prod,precio)=>{
+  carrito.push({prod,precio});
+  total+=precio;
+  renderCarrito();
+};
+
+function renderCarrito(){
+  const c=document.getElementById("carrito");
+  c.innerHTML="";
+  carrito.forEach((it,idx)=>{
+    c.innerHTML+=`
+    <div class="card">
+      ${it.prod} - $${it.precio}
+      <button onclick="quitar(${idx})">X</button>
+    </div>`;
+  });
+  document.getElementById("total").innerText=total;
+}
+
+window.quitar = (i)=>{
+  total-=carrito[i].precio;
+  carrito.splice(i,1);
+  renderCarrito();
+};
+
+/* ENVIAR PEDIDO */
+window.enviarPedido = async () => {
+  const mesa = document.getElementById("mesa").value;
+
+  await addDoc(collection(db,"pedidos"),{
+    items:carrito,
+    total,
+    estado:"pendiente",
+    mesa,
+    creadoPor:"cliente",
+    createdAt:new Date()
+  });
+
+  carrito=[];
+  total=0;
+  renderCarrito();
+};
+
+/* MOZO: ver mesas */
+onSnapshot(collection(db,"pedidos"), snap=>{
+  const div = document.getElementById("mozoPedidos");
+  div.innerHTML = "";
+
+  let mesas = {};
+
+  snap.forEach(d=>{
+    const p = d.data();
+    mesas[p.mesa] = p.estado;
+  });
+
+  for (let m in mesas) {
+    div.innerHTML += `
+    <div class="card">
+      Mesa ${m} - ${mesas[m]}
+      ${mesas[m] === "pendiente" ? `<button onclick="marcarListo('${m}')">Listo</button>` : ""}
+    </div>`;
+  }
+});
+
+/* COCINA */
+onSnapshot(collection(db,"pedidos"), snap=>{
+  const div = document.getElementById("cocinaPedidos");
+  div.innerHTML = "";
+
+  snap.forEach(d=>{
+    const p = d.data();
+    if(p.estado === "pendiente"){
+      div.innerHTML += `
+      <div class="card">
+        Mesa ${p.mesa || "-"}<br>
+        ${p.items}<br>
+        <button onclick="marcarListo('${d.id}')">Listo</button>
+      </div>`;
+    }
+  });
+});
+
+/* MARCAR LISTO */
+window.marcarListo = async (id) => {
+  await updateDoc(doc(db,"pedidos",id),{
+    estado:"listo"
+  });
+};
+
+/* CARGA MANUAL (mozo) */
+window.cargarManual = async () => {
+  const mesa = document.getElementById("mesaManual").value;
+  const items = document.getElementById("itemsManual").value;
+
+  if(!mesa || !items) return;
+
+  await addDoc(collection(db,"pedidos"),{
+    items,
+    total:0,
+    estado:"pendiente",
+    mesa,
+    creadoPor:"mozo",
+    createdAt:new Date()
+  });
+
+  document.getElementById("mesaManual").value="";
+  document.getElementById("itemsManual").value="";
+};
+</script>
+
+</body>
+</html>
